@@ -6,6 +6,22 @@ DSH_AGENTS_HOME="${DSH_AGENTS_HOME:-${HOME}/.agents}"
 DSH_PROFILE="${DSH_PROFILE:-web}"
 DSH_PORT="${DSH_PORT:-3080}"
 HOST_FILE="${HOST_FILE:-/tmp/dsh-host}"
+SANDBOX_REPORT=""
+
+SANDBOX_PROBE='
+import { spawnSync } from "node:child_process"
+const verdicts = []
+try {
+  const { probe, launcherPath } = await import("@deepseek-ai/node-addon-system/landlock-run")
+  verdicts.push(["landlock", await Promise.resolve().then(() => probe(launcherPath(), { timeoutMs: 5000 }))])
+} catch {
+  verdicts.push(["landlock", "unusable"])
+}
+const bwrap = spawnSync("bwrap", ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--", "true"], { timeoutMs: 5000, stdio: "ignore" })
+verdicts.push(["bwrap", bwrap.status === 0 ? "full" : "unusable"])
+process.stdout.write(verdicts.map(([name, verdict]) => `${name}=${verdict}`).join(" "))
+process.exit(verdicts.some(([, verdict]) => verdict !== "unusable") ? 0 : 1)
+'
 
 log() {
   printf 'dsh-docker: %s\n' "$*" >&2
@@ -53,6 +69,28 @@ ensure_writable() {
   fi
 }
 
+detect_sandbox() {
+  local pkg
+  pkg="$(dirname "$(dirname "$(readlink -f "$(command -v dsh)")")")" || return 1
+  SANDBOX_REPORT="$(cd "${pkg}" 2>/dev/null && node --input-type=module -e "${SANDBOX_PROBE}" 2>/dev/null)" && return 0
+  SANDBOX_REPORT="${SANDBOX_REPORT:-bwrap=unusable landlock=unusable}"
+  return 1
+}
+
+select_permission_mode() {
+  if [ -n "${DSH_PERMISSION_MODE:-}" ]; then
+    return
+  fi
+  if detect_sandbox; then
+    log "sandbox runners: ${SANDBOX_REPORT}"
+    return
+  fi
+  export DSH_PERMISSION_MODE=danger-full-access
+  log "WARNING: no sandbox runner works in this container (${SANDBOX_REPORT})"
+  log "         using DSH_PERMISSION_MODE=danger-full-access: the container is the only isolation boundary"
+  log "         set DSH_PERMISSION_MODE explicitly (for example workspace-write) to fail closed instead"
+}
+
 web_args() {
   WEB_ARGS=(--profile "${DSH_PROFILE}" --no-open --host "${BIND_HOST}" --port "${DSH_PORT}")
   local public_url="${DSH_PUBLIC_URL-http://localhost:${DSH_PORT}/}"
@@ -92,6 +130,7 @@ case "${1:-web}" in
   web)
     shift || true
     ensure_writable
+    select_permission_mode
     BIND_HOST="${DSH_HOST:-$(detect_host)}"
     printf '%s\n' "${BIND_HOST}" > "${HOST_FILE}"
     web_args

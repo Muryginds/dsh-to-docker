@@ -16,7 +16,7 @@ docker compose up -d
 docker compose logs -f dsh
 ```
 
-Дождитесь строки `dsh web: http://localhost:3080/?token=…` и откройте ссылку: токен одноразовый, браузер обменяет его на cookie на 30 дней. Без compose:
+Дождитесь строки `dsh web: http://localhost:3080/?token=…` и откройте ссылку: токен живёт до перезапуска контейнера, браузер обменяет его на cookie на 30 дней. Предупреждение `no sandbox runner works in this container` в логах нормально — см. [Sandbox](#sandbox). Без compose:
 
 ```sh
 docker run -d --name dsh -p 3080:3080 -v dsh-data:/data -v "$PWD/workspace:/workspace" \
@@ -58,10 +58,10 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 | `DEEPSEEK_BASE_URL` | официальный API | Messages-совместимый endpoint |
 | `DSH_PORT` / `DSH_HOST_PORT` | `3080` / `3080` | Порт в контейнере / на хосте |
 | `DSH_PUBLIC_URL` | `http://localhost:<port>/` | Адрес в ссылке для входа и в `DSH_WEB_URL`; `none` — отключить |
-| `DSH_TRUSTED_HOSTS` | — | Дополнительные authority (`host` или `host:port` через пробел) для доступа не с localhost |
+| `DSH_TRUSTED_HOSTS` | — | Хосты (`host` или `host:port` через пробел), с которых разрешён доступ к `/api`: всё, кроме `localhost`, без них получает 403 |
 | `DSH_TLS_CERT`, `DSH_TLS_KEY` | — | TLS на listener'е, пути внутри контейнера |
 | `DSH_HOST` | авто | IP интерфейса внутри контейнера для `--host` |
-| `DSH_PERMISSION_MODE` | `workspace-write` | Режим Sandbox для новых сессий |
+| `DSH_PERMISSION_MODE` | авто | `read-only` / `workspace-write` / `danger-full-access`; пусто — авто-выбор, см. [Sandbox](#sandbox) |
 | `DSH_TELEMETRY_MODE` | — | `DISABLED` выключает OTel-выгрузку |
 | `DSH_PROFILE` | `web` | Профиль dsh |
 | `DSH_EXTRA_ARGS` | — | Дополнительные флаги `dsh web` |
@@ -91,10 +91,13 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 
 ## Sandbox
 
-Новые сессии работают в режиме `workspace-write` (запись только в workspace и temp). Внутри обычного контейнера Linux-sandbox может быть недоступен (`SANDBOX_UNAVAILABLE`): bwrap нужны user namespaces, Landlock — поддержка ядром. Варианты:
+Новые сессии по умолчанию работают в режиме `workspace-write` (запись только в workspace и временные каталоги). На Linux dsh ищет `bwrap`, затем Landlock и, если не работает ни один, не запускает команды вовсе (`SANDBOX_UNAVAILABLE`). В обычном контейнере Docker Desktop не работает ни один: у виртуальной машины нет Landlock в списке LSM, а `bwrap` нужны привилегии.
 
-- запускать контейнер с `--cap-add SYS_ADMIN --security-opt seccomp=unconfined` (включает bwrap);
-- `DSH_PERMISSION_MODE=danger-full-access` — изоляцией служит сам контейнер, файловые эффекты ограничены тем, что в него смонтировано.
+Поэтому entrypoint при старте проверяет оба раннера. Если ни один не работает и `DSH_PERMISSION_MODE` не задан, образ включается с `danger-full-access` и пишет предупреждение в лог: команды агента выполняются без дополнительных ограничений, изоляцией служит сам контейнер — монтируйте в него только то, что агент может менять. Варианты:
+
+- `DSH_PERMISSION_MODE=workspace-write` (или `read-only`) — запретить авто-выбор; нужен рабочий sandbox, иначе команды не выполняются;
+- `--privileged` у контейнера — включает `bwrap`, режим остаётся `workspace-write` (проверено);
+- на Linux-хосте Landlock может работать и без привилегий — зависит от ядра и профиля seccomp; entrypoint увидит это сам.
 
 По умолчанию включена выгрузка session-log в DeepSeek (`DSH_TELEMETRY_MODE=DISABLED` выключает OTel-часть; полная настройка — [SAFETY.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/SAFETY.md) и Settings → General).
 

@@ -40,7 +40,24 @@ RUN case "${TOOLSET}" in \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system --add safe.directory '*'
 COPY --from=deps /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=deps /usr/local/bin/dsh /usr/local/bin/pnpm /usr/local/bin/
+RUN node -e '\
+  const fs = require("fs"), path = require("path");\
+  const root = "/usr/local/lib/node_modules", binDir = "/usr/local/bin", dirs = [];\
+  for (const entry of fs.readdirSync(root)) {\
+    if (entry.startsWith("@")) for (const name of fs.readdirSync(path.join(root, entry))) dirs.push(`${entry}/${name}`);\
+    else dirs.push(entry);\
+  }\
+  for (const dir of dirs) {\
+    const pkg = path.join(root, dir);\
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkg, "package.json"), "utf8"));\
+    const bins = typeof manifest.bin === "string" ? { [dir.split("/").pop()]: manifest.bin } : manifest.bin || {};\
+    for (const [cmd, target] of Object.entries(bins)) {\
+      const link = path.join(binDir, cmd);\
+      fs.rmSync(link, { force: true });\
+      fs.symlinkSync(path.relative(binDir, path.join(pkg, target)), link);\
+    }\
+  }\
+'
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN mkdir -p /data/.dsh /data/.agents /workspace \
  && chown --recursive node:node /data /workspace
