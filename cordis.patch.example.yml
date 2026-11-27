@@ -1,0 +1,40 @@
+# Пример home-level патча dsh: список строк Cordis, который применяется
+# ПОВЕРХ профиля web (в том числе поверх того, что сохраняет страница Settings).
+#
+# Куда положить (внутри контейнера это /data/.dsh/cordis.patch.yml):
+#   cp cordis.patch.example.yml cordis.patch.yml   # раскомментировать нужное
+#   в docker-compose.yml раскомментировать строку с ./cordis.patch.yml
+#   docker compose up -d --force-recreate
+#
+# Патч ЗАМЕНЯЕТ весь config строки. Не смешивайте с настройкой провайдеров
+# через UI: для той же строки UI-правки перестанут действовать.
+# Проверить состав дерева: docker compose exec dsh dsh web --dump-config
+#
+# Обычно YAML не нужен:
+#   - прокси с Messages API  → DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL в .env
+#   - OpenAI-совместимый API → Settings → Models → Add model provider → Custom model API
+
+# ── Вариант 1. Прокси говорит по Messages API, но у него другие id моделей ──
+# Без этого блока для неофициального endpoint используются встроенные
+# deepseek-flash и deepseek-v4-pro.
+#- id: llm-deepseek
+#  config:
+#    apiKeyEnv: DEEPSEEK_API_KEY
+#    baseURL: https://proxy.example.com/anthropic
+#    models:
+#      - id: deepseek-flash
+
+# ── Вариант 2. Прокси говорит только по OpenAI-протоколу ──
+# Ключ задайте переменной окружения ORG_PROXY_API_KEY (в .env).
+#- id: llm-pi-ai
+#  config:
+#    providers:
+#      org-proxy:
+#        apiKeyEnv: ORG_PROXY_API_KEY
+#        api: openai-completions
+#        baseURL: https://proxy.example.com/v1
+#        compat:
+#          supportsDeveloperRole: false
+#          maxTokensField: max_tokens
+#        models:
+#          - id: deepseek-v4

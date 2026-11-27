@@ -1,0 +1,4 @@
+.env
+/workspace/
+/cordis.patch.yml
+.DS_Store

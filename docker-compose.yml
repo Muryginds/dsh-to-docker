@@ -1,0 +1,16 @@
+services:
+  dsh:
+    image: ${DSH_IMAGE:-muryginds/dsh}:${DSH_TAG:-latest}
+    container_name: dsh
+    restart: unless-stopped
+    ports:
+      - "${DSH_HOST_PORT:-3080}:${DSH_PORT:-3080}"
+    env_file:
+      - .env
+    volumes:
+      - dsh-data:/data
+      - ${DSH_WORKSPACE:-./workspace}:/workspace
+      # - ./cordis.patch.yml:/data/.dsh/cordis.patch.yml:ro
+
+volumes:
+  dsh-data:
