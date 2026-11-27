@@ -373,11 +373,24 @@ require_login() {
   if [ "${DRY_RUN}" = "1" ]; then
     return 0
   fi
-  local cfg="${DOCKER_CONFIG:-${HOME}/.docker}/config.json"
-  if [ -f "${cfg}" ] && grep -Eq '"(index\.docker\.io[^"]*|credsStore|credHelpers)"' "${cfg}"; then
+  local cfg="${DOCKER_CONFIG:-${HOME}/.docker}/config.json" store helper entries
+  if [ ! -f "${cfg}" ]; then
+    die "Docker Hub credentials not found; run 'docker login' first"
+  fi
+  if tr -d '\n ' < "${cfg}" | grep -Eq '"index\.docker\.io[^"]*":\{"auth"'; then
     return 0
   fi
-  die "Docker Hub credentials not found; run 'docker login' first"
+  store="$(sed -n 's/.*"credsStore": *"\([^"]*\)".*/\1/p' "${cfg}" | head -1)"
+  helper="docker-credential-${store}"
+  if [ -n "${store}" ] && command -v "${helper}" >/dev/null 2>&1; then
+    entries="$("${helper}" list 2>/dev/null | tr -d '{}" \n' || true)"
+    if [ -n "${entries}" ]; then
+      return 0
+    fi
+    die "the '${store}' credential store has no registry login; run 'docker login' first"
+  fi
+  grep -Eq '"(index\.docker\.io[^"]*|credsStore|credHelpers)"' "${cfg}" \
+    || die "Docker Hub credentials not found; run 'docker login' first"
 }
 
 verify_manifest() {
