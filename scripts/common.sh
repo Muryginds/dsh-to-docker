@@ -17,6 +17,10 @@ PULL=0
 ASSUME_YES=0
 DRY_RUN=0
 NO_SMOKE=0
+REVISION="${DSH_REVISION:-}"
+OVERWRITE=0
+ALLOW_DIRTY=0
+VCS_REF=""
 VERSION=""
 CHANNEL=""
 DIST_TAGS=""
@@ -24,7 +28,7 @@ BUILDER=""
 IMAGE_TAGS=()
 BUILD_CMD=()
 
-VALUE_OPTIONS=" --version --toolset --platforms --image --extra-packages --node-image --npm-registry --builder "
+VALUE_OPTIONS=" --version --toolset --platforms --image --extra-packages --node-image --npm-registry --builder --revision "
 
 info() {
   printf '%s\n' "$*"
@@ -80,6 +84,7 @@ set_value_option() {
     --node-image) NODE_IMAGE="$2" ;;
     --npm-registry) NPM_REGISTRY="$2" ;;
     --builder) BUILDER_NAME="$2" ;;
+    --revision) REVISION="$2" ;;
   esac
   if [ "$1" = "--version" ] && [ -z "$2" ]; then
     RELEASE_SET=0
@@ -118,6 +123,8 @@ parse_args() {
       --no-cache) NO_CACHE=1 ;;
       --pull) PULL=1 ;;
       --no-smoke) NO_SMOKE=1 ;;
+      --overwrite) OVERWRITE=1 ;;
+      --allow-dirty) ALLOW_DIRTY=1 ;;
       --yes|-y) ASSUME_YES=1 ;;
       --dry-run) DRY_RUN=1 ;;
       -h|--help)
@@ -249,18 +256,102 @@ platform_count() {
   printf '%s' "${PLATFORMS}" | tr ',' '\n' | grep -c '[^[:space:]]'
 }
 
-compute_tags() {
-  local suffix="" line
-  [ "${TOOLSET}" = "full" ] || suffix="-${TOOLSET}"
-  IMAGE_TAGS=("${IMAGE}:${VERSION}${suffix}")
+tag_suffix() {
+  [ "${TOOLSET}" = "full" ] || printf -- '-%s' "${TOOLSET}"
+}
+
+add_alias_tags() {
+  local suffix line
+  suffix="$(tag_suffix)"
+  IMAGE_TAGS+=("${IMAGE}:${VERSION}${suffix}")
   if [ -z "${DIST_TAGS}" ]; then
-    fetch_dist_tags || { warn "dist-tags are unavailable; using only the version tag"; return 0; }
+    fetch_dist_tags || { warn "dist-tags are unavailable; skipping the dist-tag aliases"; return 0; }
   fi
   while IFS= read -r line; do
     if [ -n "${line}" ] && [ "${line#*=}" = "${VERSION}" ]; then
       IMAGE_TAGS+=("${IMAGE}:${line%%=*}${suffix}")
     fi
   done <<< "${DIST_TAGS}"
+}
+
+compute_tags() {
+  IMAGE_TAGS=()
+  add_alias_tags
+}
+
+compute_publish_tags() {
+  IMAGE_TAGS=("${IMAGE}:${VERSION}$(tag_suffix)-r${REVISION}")
+  add_alias_tags
+}
+
+resolve_vcs_ref() {
+  VCS_REF="unknown"
+  if ! git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    warn "${ROOT_DIR} is not a git work tree; the image revision label will be 'unknown'"
+    return 0
+  fi
+  VCS_REF="$(git -C "${ROOT_DIR}" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+  if [ -n "$(git -C "${ROOT_DIR}" status --porcelain 2>/dev/null)" ]; then
+    if [ "${ALLOW_DIRTY}" != "1" ] && [ "${DRY_RUN}" != "1" ]; then
+      die "the git working tree in ${ROOT_DIR} has uncommitted changes; commit them first or pass --allow-dirty"
+    fi
+    VCS_REF="${VCS_REF}-dirty"
+    warn "building from an uncommitted working tree (${VCS_REF})"
+  fi
+}
+
+registry_tag_state() {
+  local out
+  if docker buildx imagetools inspect "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  out="$(docker buildx imagetools inspect "$1" 2>&1 | tr 'A-Z' 'a-z' || true)"
+  case "${out}" in
+    *"not found"*|*"manifest unknown"*|*"no such manifest"*|*"name_unknown"*|*"was not found"*) return 1 ;;
+  esac
+  printf '%s\n' "${out}" >&2
+  return 2
+}
+
+next_free_revision() {
+  local base="$1" n=1 state=0
+  while [ "${n}" -le 500 ]; do
+    registry_tag_state "${IMAGE}:${base}-r${n}" || state=$?
+    if [ "${state}" = "1" ]; then
+      printf '%s' "${n}"
+      return 0
+    fi
+    if [ "${state}" != "0" ]; then
+      return 1
+    fi
+    n=$((n + 1))
+  done
+  return 1
+}
+
+resolve_revision() {
+  local base="${VERSION}$(tag_suffix)" suggested state=0
+  if [ -z "${REVISION}" ] && [ "${DRY_RUN}" = "1" ]; then
+    REVISION="N"
+    return 0
+  fi
+  if [ -z "${REVISION}" ]; then
+    suggested="$(next_free_revision "${base}")" || die "cannot list ${IMAGE}:${base}-r<N> tags in the registry"
+    ask REVISION "image revision (r<N>; every publish gets a new one)" "${suggested}"
+  fi
+  REVISION="${REVISION#r}"
+  case "${REVISION}" in
+    ""|*[!0-9]*) die "revision must be a positive integer, got '${REVISION}'" ;;
+  esac
+  registry_tag_state "${IMAGE}:${base}-r${REVISION}" || state=$?
+  if [ "${state}" = "0" ]; then
+    if [ "${OVERWRITE}" != "1" ]; then
+      die "${IMAGE}:${base}-r${REVISION} already exists; publish a new revision or pass --overwrite"
+    fi
+    warn "overwriting the existing tag ${IMAGE}:${base}-r${REVISION}"
+  elif [ "${state}" != "1" ]; then
+    die "cannot check whether ${IMAGE}:${base}-r${REVISION} exists in the registry"
+  fi
 }
 
 print_summary() {
@@ -271,6 +362,9 @@ print_summary() {
   info "Toolset:    ${TOOLSET}"
   info "Platforms:  ${PLATFORMS}"
   info "Extra apt:  ${EXTRA_APT_PACKAGES:-none}"
+  if [ -n "${REVISION}" ]; then
+    info "Revision:   r${REVISION} (git ${VCS_REF})"
+  fi
   info "Tags:       ${tags%, }"
 }
 
@@ -308,6 +402,9 @@ build_cmd() {
   fi
   if [ -n "${NODE_IMAGE}" ]; then
     BUILD_CMD+=(--build-arg "NODE_IMAGE=${NODE_IMAGE}")
+  fi
+  if [ -n "${VCS_REF}" ]; then
+    BUILD_CMD+=(--build-arg "VCS_REF=${VCS_REF}")
   fi
   if [ "${NO_CACHE}" = "1" ]; then
     BUILD_CMD+=(--no-cache)
@@ -376,6 +473,15 @@ smoke_test() {
     *"${VERSION}"*) ;;
     *) die "smoke test failed: expected version ${VERSION}" ;;
   esac
+  if [ -n "${VCS_REF}" ] && [ "${SMOKE_PULL}" = "1" ]; then
+    local label
+    label="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${ref}" 2>/dev/null || true)"
+    if [ "${label}" != "${VCS_REF}" ]; then
+      warn "published image carries revision '${label}', expected '${VCS_REF}'"
+    else
+      info "revision label: ${label}"
+    fi
+  fi
 }
 
 require_login() {

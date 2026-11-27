@@ -12,9 +12,11 @@ FROM ${NODE_IMAGE}
 ARG DSH_VERSION=latest
 ARG TOOLSET=full
 ARG EXTRA_APT_PACKAGES=
+ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="dsh" \
       org.opencontainers.image.description="DeepSeek Harness (dsh) web UI in a container" \
       org.opencontainers.image.version="${DSH_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/Muryginds/dsh-to-docker" \
       org.opencontainers.image.url="https://deepseek.com/harness" \
       org.opencontainers.image.licenses="MIT"

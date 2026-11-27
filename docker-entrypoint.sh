@@ -7,6 +7,9 @@ DSH_PROFILE="${DSH_PROFILE:-web}"
 DSH_PORT="${DSH_PORT:-3080}"
 HOST_FILE="${HOST_FILE:-/tmp/dsh-host}"
 SANDBOX_REPORT=""
+if [ -z "${DSH_PERMISSION_MODE:-}" ]; then
+  unset DSH_PERMISSION_MODE
+fi
 
 SANDBOX_PROBE='
 import { spawnSync } from "node:child_process"

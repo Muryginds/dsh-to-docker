@@ -1,0 +1,33 @@
+# Провайдер для OpenAI-совместимого прокси.
+#   cp cordis.patch.example.yml cordis.patch.yml   # и заполните адрес и id модели
+#
+# Файл монтируется в контейнер как /data/.dsh/cordis.patch.yml — home-level слой dsh.
+# Он применяется ПОВЕРХ настроек, сохранённых в UI: для строки llm-pi-ai правки из UI
+# перестанут действовать. Проверить состав: docker compose exec dsh dsh web --dump-config
+- id: llm-pi-ai
+  config:
+    providers:
+      org-proxy:
+        displayName: Org Proxy
+        apiKeyEnv: ORG_PROXY_API_KEY
+        api: openai-completions
+        # Адрес прокси; dsh сам добавит /chat/completions и /models.
+        baseURL: https://proxy.example.com/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          # id модели, которую отдаёт прокси. Список:
+          #   curl -s <baseURL>/models -H "Authorization: Bearer <токен>"
+          # maxTokens — лимит вывода в запросе; поставьте не больше, чем принимает модель.
+          - id: deepseek-chat
+            name: DeepSeek Chat
+            contextWindow: 128000
+            maxTokens: 8192
+
+# Раскомментируйте, чтобы новые сессии сразу начинались с модели прокси.
+# Тогда выбор модели «по умолчанию» в UI перестанет действовать — менять её нужно здесь.
+#- id: agent-default-model
+#  config:
+#    provider: org-proxy
+#    model: deepseek-chat

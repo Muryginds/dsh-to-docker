@@ -48,6 +48,8 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 
 `DEEPSEEK_BASE_URL` читается только из окружения контейнера или `/data/.dsh/.env`, но не из `.env` проекта. Для неофициального endpoint список моделей не запрашивается — используются встроенные `deepseek-flash` и `deepseek-v4-pro`.
 
+Готовый набор для прокси с протоколом OpenAI: [examples/openai-proxy](examples/openai-proxy/README.md) — compose с доступом только с `127.0.0.1` и файл провайдера.
+
 ## Переменные
 
 Все переменные задаются в `.env` (шаблон — [`.env.example`](.env.example)).
@@ -61,7 +63,7 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 | `DSH_TRUSTED_HOSTS` | — | Хосты (`host` или `host:port` через пробел), с которых разрешён доступ к `/api`: всё, кроме `localhost`, без них получает 403 |
 | `DSH_TLS_CERT`, `DSH_TLS_KEY` | — | TLS на listener'е, пути внутри контейнера |
 | `DSH_HOST` | авто | IP интерфейса внутри контейнера для `--host` |
-| `DSH_PERMISSION_MODE` | авто | `read-only` / `workspace-write` / `danger-full-access`; пусто — авто-выбор, см. [Sandbox](#sandbox) |
+| `DSH_PERMISSION_MODE` | не задана | `read-only` / `workspace-write` / `danger-full-access`; если строка закомментирована — авто-выбор, см. [Sandbox](#sandbox) |
 | `DSH_TELEMETRY_MODE` | — | `DISABLED` выключает OTel-выгрузку |
 | `DSH_PROFILE` | `web` | Профиль dsh |
 | `DSH_EXTRA_ARGS` | — | Дополнительные флаги `dsh web` |
@@ -73,7 +75,7 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 
 ```sh
 ./scripts/build.sh                                   # собрать локально (--load), проверка dsh --version
-./scripts/publish.sh                                 # собрать и запушить все теги
+./scripts/publish.sh                                 # собрать, запушить -r<N> и перевести алиасы
 ./scripts/publish.sh --yes --platforms linux/amd64,linux/arm64 --toolset minimal
 ./scripts/build.sh --dry-run                         # показать команды docker без запуска
 ```
@@ -87,7 +89,13 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 | `--image` | `namespace/name` | `muryginds/dsh` |
 | `--node-image`, `--npm-registry` | Базовый образ, реестр npm | `node:24-bookworm-slim`, npmjs |
 
-Теги: `<версия>` плюс по тегу на каждый npm dist-tag, который на неё указывает (`latest`, `next`, `alpha`); для `minimal` добавляется суффикс. Для мультиархитектурной сборки скрипт создаёт buildx-builder `dsh-builder` и не меняет builder по умолчанию. Тот же параметр можно задать переменной окружения `DSH_<ИМЯ>` (`DSH_VERSION`, `DSH_TOOLSET`, `DSH_PLATFORMS`, `DSH_IMAGE`, `DSH_EXTRA_APT_PACKAGES`, …).
+| `--revision` | Номер сборки в теге `<версия>-r<N>` (`publish.sh`) | первый свободный |
+| `--overwrite` | Разрешить заменить существующий `-r<N>` (`publish.sh`) | — |
+| `--allow-dirty` | Разрешить публикацию из незакоммиченного дерева (`publish.sh`) | — |
+
+Теги: каждая публикация создаёт **неизменяемый** `<версия>-r<N>` (`-r1`, `-r2`, …) и переводит на него **подвижные** алиасы — `<версия>` и по тегу на каждый npm dist-tag, который на неё указывает (`latest`, `next`, `alpha`). Для `minimal` добавляется суффикс `-minimal`. Существующий `-r<N>` не перезаписывается, публикация возможна только из закоммиченного дерева, а метка `org.opencontainers.image.revision` хранит коммит, из которого собран образ. Чтобы получать ровно тот же образ независимо от новых заливок, фиксируйте тег: `DSH_TAG=0.2.2-rc.5-r2`.
+
+Для мультиархитектурной сборки скрипт создаёт buildx-builder `dsh-builder` и не меняет builder по умолчанию. Тот же параметр можно задать переменной окружения `DSH_<ИМЯ>` (`DSH_VERSION`, `DSH_TOOLSET`, `DSH_PLATFORMS`, `DSH_IMAGE`, `DSH_REVISION`, `DSH_EXTRA_APT_PACKAGES`, …).
 
 ## Sandbox
 
