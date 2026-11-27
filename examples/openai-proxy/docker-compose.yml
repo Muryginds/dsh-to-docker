@@ -7,6 +7,12 @@ services:
       - "127.0.0.1:${DSH_HOST_PORT:-3080}:3080"
     env_file:
       - .env
+    # Если адрес прокси резолвится только в сети организации и контейнер его не видит,
+    # укажите внутренний DNS или сопоставьте имя с IP напрямую.
+    # dns:
+    #   - 10.0.0.53
+    # extra_hosts:
+    #   - "proxy.example.com:10.0.0.10"
     volumes:
       - dsh-data:/data
       - ${DSH_WORKSPACE:-./workspace}:/workspace
