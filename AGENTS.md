@@ -9,7 +9,7 @@ Packaging of the npm package `@deepseek-ai/dsh` (DeepSeek Harness) as a Docker i
 - `bash -n scripts/*.sh docker-entrypoint.sh`
 - `./scripts/build.sh --dry-run` and `./scripts/publish.sh --dry-run --yes` print the docker commands and need no Docker; combine with `--version`, `--toolset minimal`, `--platforms linux/amd64,linux/arm64`, bad values (validation paths) to cover variants.
 - Prompts appear only when stdin and stdout are TTYs. Agent shells are not TTYs, so the scripts silently use defaults and `publish.sh` needs `--yes`; to exercise the prompts use `expect`.
-- With Docker running: `./scripts/build.sh --version <v> --platforms linux/arm64` (native on an Apple Silicon Mac; the default `linux/amd64` runs under emulation and skips the smoke test) loads the image and runs `dsh --version`.
+- With Docker running: `./scripts/build.sh --version <v>` loads the image and runs `dsh --version`; on an Apple Silicon Mac add `--platforms linux/arm64` for a native build (a `linux/amd64` build is emulated, and the smoke test only warns when emulation is unavailable).
 - Inspect the image with `docker run --rm --entrypoint sh <image> -c '...'`: the entrypoint forwards every command to `dsh`, so without `--entrypoint` a shell command is parsed as a dsh command. The package dir is root-owned; run node probes with `cd` into it and `--input-type=module -e`, not by writing files.
 - Check entry ids and flags of the installed version with `docker run --rm <image> --profile web --dump-default-config` and `docker run --rm <image> web --help` (the latter boots part of the tree, ~2.5 s).
 - Runtime check: `docker run -d -p 3080:3080 -v <vol>:/data <image>`, wait for a `token=` line in `docker logs`, then `curl` the URL with a cookie jar (expect 303, then 200 on `/`; `/api/*` under a foreign `Host` gives 403).
@@ -31,5 +31,7 @@ Packaging of the npm package `@deepseek-ai/dsh` (DeepSeek Harness) as a Docker i
 - Any entrypoint command other than `web`/`healthcheck` passes straight to `dsh` (`docker run <image> --version`, `headless "task"`).
 - Tag scheme is `compute_tags` in `scripts/common.sh`: `<version>` plus one tag per npm dist-tag that points to it; a non-`full` toolset gets a `-<toolset>` suffix. Dist-tags come from `${NPM_REGISTRY%/}/-/package/@deepseek-ai/dsh/dist-tags`.
 - Multi-platform pushes need a `docker-container` buildx builder: the script creates `dsh-builder` on demand and selects it with `--builder`, leaving the global default builder alone. `--load` works for a single platform only, which is why `build.sh` and `publish.sh` are separate.
+- `docker buildx imagetools inspect` prints `Platform:` lines only for multi-arch indexes; `manifest_platforms` in `scripts/common.sh` reads both shapes (`--raw` for indexes, `--format '{{.Image.OS}}/{{.Image.Architecture}}'` for a single manifest).
+- `require_login` asks the credential helper (`docker-credential-desktop list`) whether the store is empty, so `publish.sh` fails before building when only `credsStore` is set in `~/.docker/config.json`.
 - `NODE_ENV` is deliberately not set in the image (it would make the agent's own `npm install` skip devDependencies).
 - README and `.env.example` are written in Russian; script output is English.

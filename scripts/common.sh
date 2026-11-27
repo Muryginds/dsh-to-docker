@@ -342,7 +342,7 @@ native_platform() {
 }
 
 smoke_test() {
-  local ref="${IMAGE_TAGS[0]}" native out
+  local ref="${IMAGE_TAGS[0]}" native platform out
   if [ "${NO_SMOKE}" = "1" ]; then
     return 0
   fi
@@ -350,19 +350,28 @@ smoke_test() {
     run run --rm "${ref}" dsh --version
     return 0
   fi
-  native="$(native_platform)" || { warn "cannot detect the local platform; skipping the smoke test"; return 0; }
+  native="$(native_platform)" || native=""
+  platform="${native:-${PLATFORMS%%,*}}"
   case ",${PLATFORMS}," in
-    *",${native},"*) ;;
-    *) warn "${native} was not built; skipping the smoke test"; return 0 ;;
+    *",${platform},") ;;
+    *)
+      platform="${PLATFORMS%%,*}"
+      warn "the local platform (${native:-unknown}) was not built; trying ${platform} through emulation"
+      ;;
   esac
   if [ "${SMOKE_PULL}" = "1" ]; then
-    run pull --platform "${native}" "${ref}" || die "cannot pull ${ref}"
+    run pull --platform "${platform}" "${ref}" || die "cannot pull ${ref}"
   fi
-  if ! out="$(docker run --rm --platform "${native}" "${ref}" dsh --version 2>&1)"; then
-    printf '%s\n' "${out}" >&2
-    die "smoke test failed: 'dsh --version' returned an error"
+  if ! out="$(docker run --rm --platform "${platform}" "${ref}" dsh --version 2>&1)"; then
+    if [ -n "${native}" ] && [ "${platform}" = "${native}" ]; then
+      printf '%s\n' "${out}" >&2
+      die "smoke test failed: 'dsh --version' returned an error"
+    fi
+    printf '%s\n' "${out}" >&2 | tail -3
+    warn "cannot run ${platform} on this machine; check it with: docker run --rm --platform ${platform} ${ref} dsh --version"
+    return 0
   fi
-  info "dsh --version: ${out}"
+  info "dsh --version (${platform}): ${out}"
   case "${out}" in
     *"${VERSION}"*) ;;
     *) die "smoke test failed: expected version ${VERSION}" ;;
@@ -393,19 +402,39 @@ require_login() {
     || die "Docker Hub credentials not found; run 'docker login' first"
 }
 
+manifest_platforms() {
+  local ref="$1" raw flat
+  if ! raw="$(docker buildx imagetools inspect --raw "${ref}" 2>/dev/null)"; then
+    return 1
+  fi
+  flat="$(printf '%s' "${raw}" | tr -d ' \n')"
+  case "${flat}" in
+    *'"manifests":[{'*)
+      if command -v jq >/dev/null 2>&1; then
+        printf '%s' "${raw}" | jq -r '.manifests[] | select(.platform.architecture != "unknown") | "\(.platform.os)/\(.platform.architecture)"'
+      else
+        printf '%s\n' "${flat}" | grep -oE '"architecture":"[^"]+","os":"[^"]+"' | grep -v '"unknown"' \
+          | sed -E 's/"architecture":"([^"]+)","os":"([^"]+)"/\2\/\1/'
+      fi
+      return 0
+      ;;
+  esac
+  docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "${ref}" 2>/dev/null
+}
+
 verify_manifest() {
-  local manifest p
+  local platforms p
   if [ "${DRY_RUN}" = "1" ]; then
     run buildx imagetools inspect "${IMAGE_TAGS[0]}"
     return 0
   fi
-  manifest="$(docker buildx imagetools inspect "${IMAGE_TAGS[0]}")" \
+  platforms="$(manifest_platforms "${IMAGE_TAGS[0]}")" \
     || die "cannot inspect ${IMAGE_TAGS[0]} in the registry"
   for p in $(printf '%s' "${PLATFORMS}" | tr ',' ' '); do
-    if printf '%s\n' "${manifest}" | grep -Eq "Platform:[[:space:]]+${p}\$"; then
+    if printf '%s\n' "${platforms}" | grep -qx "${p}"; then
       info "published:  ${p}"
     else
-      warn "${p} is missing from the manifest of ${IMAGE_TAGS[0]}"
+      warn "${p} is missing from ${IMAGE_TAGS[0]} (registry has: $(printf '%s' "${platforms}" | tr '\n' ' '))"
     fi
   done
 }
