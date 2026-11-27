@@ -12,9 +12,9 @@
 #
 # Обычно YAML не нужен:
 #   - прокси с Messages API  → DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL в .env
-#   - OpenAI-совместимый API → Settings → Models → Add model provider → Custom model API
+#   - OpenAI-совместимый API → examples/openai-proxy/ (готовый compose и провайдер)
 
-# ── Вариант 1. Прокси говорит по Messages API, но у него другие id моделей ──
+# ── Прокси говорит по Messages API, но у него другие id моделей ──
 # Без этого блока для неофициального endpoint используются встроенные
 # deepseek-flash и deepseek-v4-pro.
 #- id: llm-deepseek
@@ -23,18 +23,4 @@
 #    baseURL: https://proxy.example.com/anthropic
 #    models:
 #      - id: deepseek-flash
-
-# ── Вариант 2. Прокси говорит только по OpenAI-протоколу ──
-# Ключ задайте переменной окружения ORG_PROXY_API_KEY (в .env).
-#- id: llm-pi-ai
-#  config:
-#    providers:
-#      org-proxy:
-#        apiKeyEnv: ORG_PROXY_API_KEY
-#        api: openai-completions
-#        baseURL: https://proxy.example.com/v1
-#        compat:
-#          supportsDeveloperRole: false
-#          maxTokensField: max_tokens
-#        models:
-#          - id: deepseek-v4
+#      - id: deepseek-v4-pro

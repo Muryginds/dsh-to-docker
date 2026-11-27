@@ -2,7 +2,7 @@
 
 Docker-образ [DeepSeek Harness (`dsh`)](https://github.com/deepseek-ai/deepseek-harness) — Web UI и CLI агентного харнесса DeepSeek в контейнере. Образ собирается из готового npm-пакета `@deepseek-ai/dsh`; здесь только упаковка, исходники dsh в репозитории отсутствуют.
 
-- Образ: [`muryginds/dsh`](https://hub.docker.com/r/muryginds/dsh) — теги `latest`, `<версия>`, суффикс `-minimal` для облегчённого набора инструментов
+- Образ: [`muryginds/dsh`](https://hub.docker.com/r/muryginds/dsh) — неизменяемые теги `<версия>-r<N>` и подвижные `latest`, `<версия>`; суффикс `-minimal` для облегчённого набора инструментов
 - dsh — developer preview: ломающие изменения между версиями возможны, каждая версия образа пиннит свою версию dsh
 
 ## Быстрый старт
@@ -33,7 +33,7 @@ docker logs dsh
 
 ```sh
 docker run --rm muryginds/dsh:latest --version
-docker run --rm muryginds/dsh:latest headless "перечисли пакеты"   # одноразичная задача
+docker run --rm muryginds/dsh:latest headless "перечисли пакеты"   # одноразовая задача
 ```
 
 ## Модель и корпоративный прокси
@@ -43,12 +43,12 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 | Прокси | Как подключить |
 |---|---|
 | Говорит по Messages API (Anthropic-протокол, как `https://api.deepseek.com/anthropic`) | `DEEPSEEK_API_KEY` + `DEEPSEEK_BASE_URL` в `.env` (или в UI). dsh добавит `/v1/messages`; базовый URL — без учётных данных, query и fragment |
-| То же, но другие id моделей | Дополнительно список `models` — вариант 1 в [`cordis.patch.example.yml`](cordis.patch.example.yml) |
-| Только OpenAI-совместимый | **Settings → Models → Add model provider → Custom model API** (протокол OpenAI Chat Completions или Responses) или вариант 2 в `cordis.patch.example.yml` |
+| То же, но другие id моделей | Дополнительно список `models` — пример в [`cordis.patch.example.yml`](cordis.patch.example.yml) |
+| Только OpenAI-совместимый | Готовый сценарий [examples/openai-proxy](examples/openai-proxy/README.md): compose с доступом только с `127.0.0.1` и провайдер, который читает адрес и токен из `.env` |
 
 `DEEPSEEK_BASE_URL` читается только из окружения контейнера или `/data/.dsh/.env`, но не из `.env` проекта. Для неофициального endpoint список моделей не запрашивается — используются встроенные `deepseek-flash` и `deepseek-v4-pro`.
 
-Готовый набор для прокси с протоколом OpenAI: [examples/openai-proxy](examples/openai-proxy/README.md) — compose с доступом только с `127.0.0.1` и файл провайдера.
+В сценарии OpenAI-прокси адрес и токен задаются в `.env` (`ORG_PROXY_BASE_URL`, `ORG_PROXY_API_KEY`) и подставляются в патч через `!!js`, поэтому внутренний адрес не попадает в репозиторий.
 
 ## Переменные
 
@@ -68,6 +68,8 @@ docker run --rm muryginds/dsh:latest headless "перечисли пакеты" 
 | `DSH_PROFILE` | `web` | Профиль dsh |
 | `DSH_EXTRA_ARGS` | — | Дополнительные флаги `dsh web` |
 | `DSH_IMAGE`, `DSH_TAG`, `DSH_WORKSPACE` | — | Только для `docker compose` |
+
+Переменные сценария OpenAI-прокси (`ORG_PROXY_API_KEY`, `ORG_PROXY_BASE_URL`) — в [`examples/openai-proxy/.env.example`](examples/openai-proxy/.env.example).
 
 ## Сборка и публикация
 
