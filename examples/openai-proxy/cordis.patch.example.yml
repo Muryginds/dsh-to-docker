@@ -11,6 +11,8 @@
         displayName: Org Proxy
         apiKeyEnv: ORG_PROXY_API_KEY
         api: openai-completions
+        # baseURL — обычное строковое поле (в отличие от apiKeyEnv, где значение —
+        # имя переменной), поэтому значение читаем из env через !!js.
         # Адрес берётся из .env (ORG_PROXY_BASE_URL), чтобы не хранить внутренний
         # адрес в репозитории. dsh сам добавит /chat/completions и /models.
         baseURL: !!js process.env.ORG_PROXY_BASE_URL

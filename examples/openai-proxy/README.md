@@ -53,7 +53,7 @@ mkdir -p ~/projects
 cp cordis.patch.example.yml cordis.patch.yml
 ```
 
-Токен и адрес уже берутся из `.env`; в `cordis.patch.yml` остаётся указать id модели и лимиты:
+Токен и адрес уже берутся из `.env`; в `cordis.patch.yml` остаётся указать id модели и лимиты. `apiKeyEnv` — это имя переменной, из которой dsh берёт ключ, а `baseURL` — обычное строковое поле, поэтому его значение подставляется из env через `!!js` (иначе dsh примет `ORG_PROXY_BASE_URL` за сам адрес):
 
 ```yaml
 - id: llm-pi-ai
